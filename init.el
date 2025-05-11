@@ -201,7 +201,7 @@
   (create-lockfiles nil)                          ;; Prevent the creation of lock files when editing.
   (delete-by-moving-to-trash t)                   ;; Move deleted files to the trash instead of permanently deleting them.
   (delete-selection-mode 1)                       ;; Enable replacing selected text with typed text.
-  (display-line-numbers-type 'relative)           ;; Use relative line numbering in programming modes.
+  ;;(display-line-numbers-type 'relative)           ;; Use relative line numbering in programming modes.
   (global-auto-revert-non-file-buffers t)         ;; Automatically refresh non-file buffers.
   (history-length 25)                             ;; Set the length of the command history.
   (inhibit-startup-message t)                     ;; Disable the startup message when Emacs launches.
@@ -220,6 +220,7 @@
   (use-dialog-box nil)                            ;; Disable dialog boxes in favor of minibuffer prompts.
   (use-short-answers t)                           ;; Use short answers in prompts for quicker responses (y instead of yes)
   (warning-minimum-level :emergency)              ;; Set the minimum level of warnings to display.
+ (electric-pair-mode t)                                     ;; Autocomplete braces
 
   :hook                                           ;; Add hooks to enable specific features in certain modes.
   (prog-mode . display-line-numbers-mode)         ;; Enable line numbers in programming modes.
@@ -237,10 +238,10 @@
   ;; Configure font settings based on the operating system.
   ;; Ok, this kickstart is meant to be used on the terminal, not on GUI.
   ;; But without this, I fear you could start Graphical Emacs and be sad :(
-  (set-face-attribute 'default nil :family "JetBrainsMono Nerd Font"  :height 100)
+  (set-face-attribute 'default nil :family "IosevkaTerm Nerd Font Mono"  :height 100)
   (when (eq system-type 'darwin)       ;; Check if the system is macOS.
     (setq mac-command-modifier 'meta)  ;; Set the Command key to act as the Meta key.
-    (set-face-attribute 'default nil :family "JetBrainsMono Nerd Font" :height 130))
+    (set-face-attribute 'default nil :family "IosevkaTerm Nerd Font Mono" :height 130))
 
   ;; Save manual customizations to a separate file instead of cluttering `init.el'.
   ;; You can M-x customize, M-x customize-group, or M-x customize-themes, etc.
@@ -289,6 +290,17 @@
                          (number-to-string (length package-activated-list))))))))
 
 
+
+(use-package exec-path-from-shell
+  :ensure t
+  :if (memq window-system '(mac ns x))
+  :config
+  (exec-path-from-shell-initialize)
+  ;; Specify variables to import from your shell
+  (exec-path-from-shell-copy-envs '("PATH" "MANPATH" "PYTHONPATH")))
+
+
+
 ;;; WINDOW
 ;; This section configures window management in Emacs, enhancing the way buffers
 ;; are displayed for a more efficient workflow. The `window' use-package helps
@@ -332,6 +344,22 @@
       (slot . 1))
      )))
 
+
+;; ZOOM
+(defvar zoomed-buffer nil
+  "Store the window configuration before zooming.")
+
+(defun toggle-zoom-buffer ()
+  "Toggle zoom for the current buffer."
+  (interactive)
+  (if zoomed-buffer
+      (progn
+        (set-window-configuration zoomed-buffer)
+        (setq zoomed-buffer nil))
+    (setq zoomed-buffer (current-window-configuration))
+    (delete-other-windows)))
+
+(global-set-key (kbd "C-c z") #'toggle-zoom-buffer)
 
 ;;; DIRED
 ;; In Emacs, the `dired' package provides a powerful and built-in file manager
@@ -454,6 +482,54 @@
               ("C-c ^ p" . smerge-previous)))  ;; Move to the previous conflict.
 
 
+
+;;; VTERM
+;; Create a sparse keymap for vterm commands.
+(defvar vterm-prefix-map (make-sparse-keymap)
+  "Keymap for vterm commands.")
+
+;; Bind the prefix key "C-c t" to the vterm-prefix-map.
+(define-key global-map (kbd "C-c t") vterm-prefix-map)
+
+;; Use Which-Key to display "vterm" as the description for the "C-c t" prefix.
+(which-key-add-key-based-replacements
+  "C-c t" "vterm")
+
+(use-package multi-vterm
+  :ensure t
+  ;; Generate autoload for `multi-vterm` so calling it loads the package.
+  :commands (multi-vterm)
+  ;; Alternatively, you can force-load it on startup:
+  ;; :demand t
+
+  ;; Keybindings under our prefix map
+  :bind (:map vterm-prefix-map
+              ("f" . multi-vterm)             ;; create/switch vterm
+              ("|" . vterm-vertical-split)    ;; vertical split + vterm
+              ("-" . vterm-horizontal-split)) ;; horizontal split + vterm
+
+  ;; Optional: any customization of multi-vterm goes here
+  :config
+  ;; e.g. set default shell or buffer name
+  ;; (setq multi-vterm-program "/usr/bin/zsh")
+  )
+
+(defun vterm-vertical-split ()
+  "Create a new vterm buffer in a vertically split window."
+  (interactive)
+  (split-window-right)
+  (other-window 1)
+  (multi-vterm))
+
+(defun vterm-horizontal-split ()
+  "Create a new vterm buffer in a horizontally split window."
+  (interactive)
+  (split-window-below)
+  (other-window 1)
+  (multi-vterm))
+
+
+
 ;;; ELDOC
 ;; Eldoc provides helpful inline documentation for functions and variables
 ;; in the minibuffer, enhancing the development experience. It can be particularly useful
@@ -480,6 +556,10 @@
    '((error "!»" compilation-error) (warning "»" compilation-warning)
      (note "»" compilation-info))))
 
+(use-package flymake-popon
+  :ensure t
+  :defer t
+  :hook (flymake-mode . flymake-popon-mode))
 
 ;;; ORG-MODE
 ;; Org-mode is a powerful system for organizing and managing your notes,
@@ -488,8 +568,125 @@
 ;; productivity. The configuration below simply defers loading Org-mode until
 ;; it's explicitly needed, which can help speed up Emacs startup time.
 (use-package org
-  :ensure nil     ;; This is built-in, no need to fetch it.
-  :defer t)       ;; Defer loading Org-mode until it's needed.
+  :ensure t
+  :defer t
+  :custom
+  (org-edit-src-content-indentation 4) ;; Set src block automatic indent to 4 instead of 2.
+  :hook
+  (org-mode . org-indent-mode) ;; Indent text
+  :config
+  ;; Load the necessary org-babel languages
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((python . t)       ;; Enable Python
+     (shell . t)))      ;; Enable Shell
+  ;; Disable confirmation before executing code blocks
+  (setq org-confirm-babel-evaluate nil)
+  ;; Enable syntax highlighting in org-mode source blocks
+  (setq org-src-fontify-natively t)
+  (setq org-latex-pdf-process '("pdflatex -interaction nonstopmode -output-directory %o %f"))
+  (setq org-startup-with-latex-preview t)
+  (setq org-preview-latex-default-process 'dvisvgm)
+  (setq org-preview-latex-default-process 'dvisvgm)
+  (setq org-format-latex-options
+		(plist-put org-format-latex-options :background "Transparent")) ;; Use transparent background
+  (setq org-format-latex-options
+		(plist-put org-format-latex-options :foreground "white")) ;; Set foreground to white for dark themes
+  (setq org-format-latex-options
+		(plist-put org-format-latex-options :scale 1.5)) ;; Adjust scale for better visibility
+
+  ;; The following prevents <> from auto-pairing when
+  ;; electric-pair-mode is on.  Otherwise, org-tempo is broken when
+  ;; you try to <s TAB...  (org-mode . (lambda () (setq-local
+  ;; electric-pair-inhibit-predicate `(lambda (c) (if (char-equal c
+  ;; ?<) t (,electric-pair-inhibit-predicate c))))))
+  )
+;; Configure org-preview-latex-fragment for higher resolution
+(use-package toc-org
+  :ensure t
+  :defer t
+  :commands toc-org-enable
+  :hook (org-mode . toc-org-mode))
+
+(use-package org-modern
+  :ensure t
+  :defer t
+  :hook (org-mode . org-modern-mode)
+  :config
+  (setq org-modern-star '("◉" "○" "✸" "✿")) ;; Customize bullets
+  (setq org-modern-timestamp t) ;; Prettify timestamps
+  (setq org-modern-priority t)) ;; Prettify priorities
+
+
+;; LaTex support
+(use-package tex
+  :ensure auctex
+  :defer t
+  :config
+  ;; Basic configuration
+  (setq TeX-auto-save t)
+  (setq TeX-parse-self t)
+  (setq-default TeX-master nil)
+
+  ;; Use PDF mode by default
+  (setq TeX-PDF-mode t)
+
+  ;; Enable TeX-fold-mode by default in AUCTeX
+  (add-hook 'TeX-mode-hook #'(lambda () (TeX-fold-mode 1)))
+
+  ;; Interactive PDF viewer
+  (setq TeX-view-program-selection '((output-pdf "PDF Tools"))
+        TeX-source-correlate-start-server t)
+
+  ;; Update PDF buffers after successful LaTeX runs
+  (add-hook 'TeX-after-compilation-finished-functions
+            #'TeX-revert-document-buffer)
+  )
+
+;; Assuming 'latex-extra' is a package you have installed
+(use-package latex-extra
+  :ensure t
+  :defer t
+  :after tex
+  :hook (LaTeX-mode . latex-extra-mode))
+
+;; Assuming 'latex-math-preview' is a package you have installed
+(use-package latex-math-preview
+  :ensure t
+  :after tex
+  :commands latex-math-preview-expression
+  :init
+  ;; You can add custom keybindings or other initializations here
+  )
+
+(use-package latex-pretty-symbols
+  :ensure t
+  :after tex
+  :hook (LaTeX-mode . latex-pretty-symbols-mode))
+
+(use-package pdf-tools
+  :defer t
+  :ensure t
+  :config)
+
+
+(use-package pdf-view
+  :ensure pdf-tools
+  :defer t
+  :hook (pdf-view-mode . (lambda ()
+                           (display-line-numbers-mode -1))))
+
+;; Install and configure math-symbols package
+(use-package math-symbols
+  :defer t
+  :ensure t)
+
+;;TRAMP
+(use-package tramp
+  :defer t
+  :ensure t
+)
+
 
 
 ;;; WHICH-KEY
@@ -646,12 +843,104 @@
   :init (setq markdown-command "multimarkdown")) ;; Set the Markdown processing command.
 
 
+;; Rust configuration
+(use-package rust-mode
+  :ensure t
+  :defer t
+  :mode "\\.rs\\'"
+  :hook (rust-mode . lsp-deferred)
+  :config
+  (setq rust-format-on-save t))
+
+(use-package cargo-mode
+  :ensure t
+  :defer t)
+
+;; Go configuration
+(use-package go-mode
+  :ensure t
+  :defer t
+  :hook (go-mode . lsp-deferred)
+  :config
+  (setq gofmt-command "goimports")
+  (add-hook 'before-save-hook #'gofmt-before-save)
+  (add-hook 'go-mode-hook (lambda ()
+       (local-set-key (kbd "C-c C-c") 'compile))))
+
+;; Python configuration
+(use-package python-mode
+  :ensure t
+  :defer t
+  :hook (python-mode . lsp-deferred))
+
+(use-package lsp-pyright
+  :ensure t
+  :after lsp-mode
+  :hook (python-mode . (lambda ()
+                         (require 'lsp-pyright)
+                         (lsp-deferred)))  ; or just (lsp)
+  :custom
+  (lsp-pyright-use-library-code-for-types t)
+  (lsp-pyright-auto-import-completions t))
+
+
+(use-package pyvenv
+  :ensure t
+  :defer t
+  :config
+  (pyvenv-mode t)
+
+  ;; Set correct Python interpreter
+  (setq pyvenv-post-activate-hooks
+        (list (lambda ()
+                (setq python-shell-interpreter (concat pyvenv-virtual-env "bin/python3")))))
+  (setq pyvenv-post-deactivate-hooks
+        (list (lambda ()
+                (setq python-shell-interpreter "python3")))))
+
+
+;; Haskell
+(use-package haskell-mode
+  :ensure t
+  :defer t
+  :hook (haskell-mode . lsp)
+  :config
+  (setq lsp-haskell-server-path "haskell-language-server-wrapper")
+  (setq lsp-haskell-formatting-provider "ormolu"))
+
+;; OCaml
+(use-package tuareg
+  :ensure t
+  :defer t
+  :hook (tuareg-mode . lsp-deferred)
+  :config
+  (setq lsp-ocaml-lsp-server-command '("ocamllsp"))
+  (add-to-list 'auto-mode-alist '("\\.ml[iylp]?" . tuareg-mode)))
+
+(use-package opam-switch-mode
+  :ensure t
+  :defer t
+  :hook (tuareg-mode . opam-switch-mode))
+
+;; Lean
+(use-package lean4-mode
+  :ensure t
+  :defer t
+  :commands lean4-mode
+  :vc (:url "https://github.com/leanprover-community/lean4-mode.git"
+       :rev :last-release
+       ;; Or, if you prefer the bleeding edge version of Lean4-Mode:
+       ;; :rev :newest
+       ))
+
 ;;; COMPANY
 ;; Company Mode provides a text completion framework for Emacs.
 ;; It enhances the editing experience by offering context-aware
 ;; suggestions as you type. With support for multiple backends,
 ;; Company Mode is highly customizable and can be integrated with
 ;; various modes and languages.
+ (use-package company-math
+   :ensure t)
 (use-package company
   :defer t
   :straight t
@@ -663,6 +952,8 @@
   (company-tooltip-maximum-width 50)
   :config
 
+  ;; Add the Unicode math symbols backend to the list of Company backends
+  (add-to-list 'company-backends 'company-math-symbols-unicode)
   ;; While using C-p C-n to select a completion candidate
   ;; C-y quickly shows help docs for the current candidate
   (define-key company-active-map (kbd "C-y")
@@ -696,11 +987,17 @@
   :straight t
   :defer t
   :hook (;; Replace XXX-mode with concrete major mode (e.g. python-mode)
-         (bash-ts-mode . lsp)                           ;; Enable LSP for Bash
-         (typescript-ts-mode . lsp)                     ;; Enable LSP for TypeScript
-         (tsx-ts-mode . lsp)                            ;; Enable LSP for TSX
-         (js-mode . lsp)                                ;; Enable LSP for JavaScript
-         (js-ts-mode . lsp)                             ;; Enable LSP for JavaScript (TS mode)
+         (bash-ts-mode . lsp-deferred)                           ;; Enable LSP for Bash
+         (typescript-ts-mode . lsp-deferred)                     ;; Enable LSP for TypeScript
+         (tsx-ts-mode . lsp-deferred)                            ;; Enable LSP for TSX
+         (js-mode . lsp-deferred)                                ;; Enable LSP for JavaScript
+         (js-ts-mode . lsp-deferred)                             ;; Enable LSP for JavaScript (TS mode)
+		 (rust-mode . lsp-deferred)                              ;; Enable LSP for Rust
+		 (python-mode . lsp-deferred)							 ;; Enable LSP for Python 
+		 (c-mode . lsp-deferred)                                 ;; Enable LSP for C
+		 (c++-mode . lsp-deferred)                               ;; Enable LSP for C++
+         (haskell-mode . lsp-deferred)                           ;; Enable LSP for Haskell
+         (tuareg-mode . lsp-deferred)                            ;; Enable LSP for OCaml (using tuareg)
          (lsp-mode . lsp-enable-which-key-integration)) ;; Integrate with Which Key
   :commands lsp
   :custom
@@ -711,6 +1008,8 @@
   (lsp-log-io nil)                                      ;; Disable IO logging for speed.
   (lsp-idle-delay 0)                                    ;; Set the delay for LSP to 0 (debouncing).
   (lsp-keep-workspace-alive nil)                        ;; Disable keeping the workspace alive.
+  (lsp-rust-analyzer-server-display-inlay-hints t)
+  (lsp-rust-analyzer-max-inlay-hint-length 25)
   ;; Core settings
   (lsp-enable-xref t)                                   ;; Enable cross-references.
   (lsp-auto-configure t)                                ;; Automatically configure LSP.
@@ -760,6 +1059,17 @@
   (add-to-list 'lsp-language-id-configuration '(".*\\.erb$" . "html")) ;; Associate ERB files with HTML.
   :init
   (setq lsp-tailwindcss-add-on-mode t))
+
+;; FOLDING
+(use-package origami
+  :ensure t
+  :config
+  (global-origami-mode))
+
+(use-package lsp-origami
+  :ensure t
+  :after (lsp-mode origami)
+  :hook (lsp-mode . lsp-origami-mode))
 
 
 ;;; Diff-HL
@@ -875,6 +1185,19 @@
   (eval-after-load 'js-mode
     '(add-hook 'js-mode-hook #'add-node-modules-path)))
 
+;; TABS
+(use-package centaur-tabs
+  :ensure t
+  :hook (after-init . centaur-tabs-mode)   ; enable in GUI/TTY frames at startup
+  :config
+  (centaur-tabs-mode 1))                  ; turn on tabs immediately after init
+
+;; For `emacs --daemon`, enable tabs in every new frame:
+;;(add-hook 'server-after-make-frame-hook
+;;          (lambda (frame)
+;;            (with-selected-frame frame
+;;              (centaur-tabs-mode 1))))
+
 
 ;; EVIL
 ;; The `evil' package provides Vim emulation within Emacs, allowing
@@ -955,6 +1278,24 @@
   (evil-define-key 'normal 'global (kbd "<leader> p k") 'project-kill-buffers) ;; Kill project buffers
   (evil-define-key 'normal 'global (kbd "<leader> p D") 'project-dired) ;; Dired for project
 
+  ;; Folding
+  (evil-define-key 'normal origami-mode-map (kbd "z a") 'origami-toggle-node)
+  (evil-define-key 'normal origami-mode-map (kbd "z M") 'origami-close-all-nodes)
+  (evil-define-key 'normal origami-mode-map (kbd "z R") 'origami-open-all-nodes)
+  (evil-define-key 'normal origami-mode-map (kbd "z S") 'origami-close-node)
+  (evil-define-key 'normal origami-mode-map (kbd "z E") 'origami-open-node)
+  ;;(evil-define-key 'normal hs-minor-mode-map (kbd "z a") 'hs-toggle-hiding)
+  ;;(evil-define-key 'normal hs-minor-mode-map (kbd "z M") 'hs-hide-all)
+  ;;(evil-define-key 'normal hs-minor-mode-map (kbd "z R") 'hs-show-all)
+  ;;(evil-define-key 'normal hs-minor-mode-map (kbd "z S") 'hs-hide-block)
+  ;;(evil-define-key 'normal hs-minor-mode-map (kbd "z E") 'hs-show-block)
+  
+
+  ;; Tab navigation
+  (evil-define-key 'normal 'global (kbd "] t") 'centaur-tabs-forward) ;; Go to next tab
+  (evil-define-key 'normal 'global (kbd "[ t") 'centaur-tabs-backward) ;; Go to previous tab
+
+
   ;; Yank from kill ring
   (evil-define-key 'normal 'global (kbd "P") 'consult-yank-from-kill-ring)
   (evil-define-key 'normal 'global (kbd "<leader> P") 'consult-yank-from-kill-ring)
@@ -970,10 +1311,6 @@
   (evil-define-key 'normal 'global (kbd "<leader> h f") 'describe-function) ;; Describe function
   (evil-define-key 'normal 'global (kbd "<leader> h v") 'describe-variable) ;; Describe variable
   (evil-define-key 'normal 'global (kbd "<leader> h k") 'describe-key) ;; Describe key
-
-  ;; Tab navigation
-  (evil-define-key 'normal 'global (kbd "] t") 'tab-next) ;; Go to next tab
-  (evil-define-key 'normal 'global (kbd "[ t") 'tab-previous) ;; Go to previous tab
 
 
   ;; Custom example. Formatting with prettier tool.
@@ -1073,6 +1410,24 @@
   (global-evil-matchit-mode 1))
 
 
+;;; MULTIPLE CURSORS
+(use-package multiple-cursors
+  :ensure t
+  :after evil
+  :config
+  ;; Bindings for multiple cursors in visual mode
+
+
+  (define-key evil-visual-state-map (kbd "C-c m n") 'mc/mark-next-like-this)
+  (define-key evil-visual-state-map (kbd "C-c m p") 'mc/mark-previous-like-this)
+  (define-key evil-visual-state-map (kbd "C-c m a") 'mc/mark-all-like-this))
+(which-key-add-key-based-replacements "C-c m" "multiple-cursors")
+  ;; Optional: Enable multiple cursors in normal mode
+  ;;(define-key evil-normal-state-map (kbd "C-m C-n") 'mc/mark-next-like-this)
+  ;;(define-key evil-normal-state-map (kbd "C-m C-p") 'mc/mark-previous-like-this)
+;;(define-key evil-normal-state-map (kbd "C-m *") 'mc/mark-all-like-this))
+
+
 ;; UNDO TREE
 ;; The `undo-tree' package provides an advanced and visual way to
 ;; manage undo history. It allows you to navigate and visualize your
@@ -1160,7 +1515,7 @@
   :straight t
   :defer t
   :custom
-  (doom-modeline-buffer-file-name-style 'buffer-name)  ;; Set the buffer file name style to just the buffer name (without path).
+  (doom-modeline-buffer-file-name-style 'truncate-upto-project)  ;; Set the buffer file name style to just the buffer name (without path).
   (doom-modeline-project-detection 'project)           ;; Enable project detection for displaying the project name.
   (doom-modeline-buffer-name t)                        ;; Show the buffer name in the mode line.
   (doom-modeline-vcs-max-length 25)                    ;; Limit the version control system (VCS) branch name length to 25 characters.
@@ -1229,29 +1584,17 @@
   (add-hook 'marginalia-mode-hook #'nerd-icons-completion-marginalia-setup)) ;; Setup icons in the marginalia mode for enhanced completion display.
 
 
-;;; CATPPUCCIN THEME
-;; The `catppuccin-theme' package provides a visually pleasing color theme
-;; for Emacs that is inspired by the popular Catppuccin color palette.
-;; This theme aims to create a comfortable and aesthetic coding environment
-;; with soft colors that are easy on the eyes.
-(use-package catppuccin-theme
+;; MODUS THEME
+(use-package modus-themes
   :ensure t
-  :straight t
   :config
-  (custom-set-faces
-   ;; Set the color for changes in the diff highlighting to blue.
-   `(diff-hl-change ((t (:background unspecified :foreground ,(catppuccin-get-color 'blue))))))
+  (load-theme 'modus-vivendi t))
 
-  (custom-set-faces
-   ;; Set the color for deletions in the diff highlighting to red.
-   `(diff-hl-delete ((t (:background unspecified :foreground ,(catppuccin-get-color 'red))))))
 
-  (custom-set-faces
-   ;; Set the color for insertions in the diff highlighting to green.
-   `(diff-hl-insert ((t (:background unspecified :foreground ,(catppuccin-get-color 'green))))))
-
-  ;; Load the Catppuccin theme without prompting for confirmation.
-  (load-theme 'catppuccin :no-confirm))
+(use-package gptel
+  :defer t
+  :ensure t
+  :bind ("C-c g" . gptel))
 
 
 ;;; UTILITARY FUNCTION TO INSTALL EMACS-KICK
